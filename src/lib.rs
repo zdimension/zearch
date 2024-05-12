@@ -23,33 +23,8 @@ impl<'a> Index<'a> {
         documents: &[impl AsRef<str>],
         writer: &mut impl std::io::Write,
     ) -> std::io::Result<()> {
-        let mut words = documents
-            .iter()
-            .enumerate()
-            .flat_map(|(id, document)| {
-                document
-                    .as_ref()
-                    .split_whitespace()
-                    .map(move |word| (id as Id, normalize(word)))
-            })
-            .collect::<Vec<(Id, String)>>();
-        words.sort_unstable_by(|(_, left), (_, right)| left.cmp(right));
+        let (documents, bitmaps, fst) = Self::new_parts_in_memory(documents);
 
-        let mut build = MapBuilder::memory();
-
-        let mut last_word = None;
-        let mut bitmaps = Vec::new();
-
-        for (id, word) in words.iter() {
-            if Some(word) != last_word {
-                bitmaps.push(RoaringBitmap::from_sorted_iter(Some(*id)).unwrap());
-                build.insert(word, (bitmaps.len() - 1) as u64).unwrap();
-            } else {
-                bitmaps.last_mut().unwrap().insert(*id);
-            }
-
-            last_word = Some(word);
-        }
         writer.write_all((documents.len() as u32).to_be_bytes().as_slice())?;
         for document in documents {
             Self::write_slice(writer, document.as_ref().as_bytes())?;
@@ -60,8 +35,6 @@ impl<'a> Index<'a> {
             bitmap.serialize_into(&mut *writer)?;
         }
 
-        // cannot fail since we were writing in memory
-        let fst = build.into_inner().unwrap();
         Self::write_slice(writer, &fst)?;
 
         Ok(())
@@ -134,11 +107,57 @@ impl<'a> Index<'a> {
         }
     }
 
-    pub fn new_in_memory(documents: &[&str]) -> Option<Index<'static>> {
-        let mut index = Vec::new();
-        Self::construct(documents, &mut index).ok()?;
-        let index = Index::from_bytes(&index)?;
-        Some(index.move_in_memory())
+    fn new_parts_in_memory<'b>(documents: &'b [impl AsRef<str>]) -> (&'b [impl AsRef<str>],
+                                                                     Vec<RoaringBitmap>,
+                                                                     Vec<u8>) {
+        let mut words = documents
+            .iter()
+            .enumerate()
+            .flat_map(|(id, document)| {
+                document
+                    .as_ref()
+                    .split_whitespace()
+                    .map(move |word| (id as Id, normalize(word)))
+            })
+            .collect::<Vec<(Id, String)>>();
+        words.sort_unstable_by(|(_, left), (_, right)| left.cmp(right));
+
+        let mut build = MapBuilder::memory();
+
+        let mut last_word = None;
+        let mut bitmaps = Vec::new();
+
+        for (id, word) in words.iter() {
+            if Some(word) != last_word {
+                bitmaps.push(RoaringBitmap::from_sorted_iter(Some(*id)).unwrap());
+                build.insert(word, (bitmaps.len() - 1) as u64).unwrap();
+            } else {
+                bitmaps.last_mut().unwrap().insert(*id);
+            }
+
+            last_word = Some(word);
+        }
+
+        let fst = build.into_inner().unwrap();
+
+        (
+            documents,
+            bitmaps,
+            fst
+       )
+    }
+
+    pub fn new_in_memory<'b>(documents: &'b [impl AsRef<str>]) -> Index<'b> {
+        let (documents, bitmaps, fst) = Self::new_parts_in_memory(documents);
+
+        Index {
+            documents: documents
+                .into_iter()
+                .map(|s| Cow::Borrowed(s.as_ref()))
+                .collect(),
+            bitmaps,
+            fst: Map::new(Cow::Owned(fst)).unwrap(),
+        }
     }
 
     pub fn get_document(&self, id: u32) -> Option<&str> {
