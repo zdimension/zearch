@@ -10,6 +10,7 @@ use text_distance::DamerauLevenshtein;
 
 use crate::ranking_rules::exact::Exact;
 
+#[derive(Clone)]
 pub struct Index<'a> {
     documents: Vec<Cow<'a, str>>,
     // we cannot work on serialized bitmap yet thus we're going to load everything in RAM
