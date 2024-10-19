@@ -403,7 +403,7 @@ mod test {
             "le double kef",
             "les keftas c'est bon aussi",
         ];
-        Index::new_in_memory(names.as_slice()).unwrap()
+        Index::new_in_memory(names.as_slice()).move_in_memory()
     }
 
     #[test]
@@ -414,8 +414,8 @@ mod test {
 
         insta::assert_debug_snapshot!(index.search(&search), @r###"
         [
-            "Tamo le plus beau",
-            "tamo est très beau aussi",
+            0,
+            3,
         ]
         "###);
 
@@ -424,8 +424,8 @@ mod test {
         search.ranking_rules = vec![RankingRule::Word];
         insta::assert_debug_snapshot!(index.search(&search), @r###"
         [
-            "tamo est très beau aussi",
-            "Tamo le plus beau",
+            3,
+            0,
         ]
         "###);
 
@@ -435,10 +435,10 @@ mod test {
         search.ranking_rules = vec![RankingRule::Word];
         insta::assert_debug_snapshot!(index.search(&search), @r###"
         [
-            "kefir le beau chien",
-            "le plus beau c'est kefir",
-            "Tamo le plus beau",
-            "tamo est très beau aussi",
+            2,
+            4,
+            0,
+            3,
         ]
         "###);
     }

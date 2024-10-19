@@ -67,7 +67,8 @@ mod test {
 
     #[test]
     fn test_words_rr() {
-        let index = Index::construct(Vec::new());
+        let coll = Vec::<String>::new();
+        let index = Index::new_in_memory(&coll);
 
         // let's say we're working with "le beau chien"
         let mut words = vec![
