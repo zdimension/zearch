@@ -18,18 +18,28 @@ pub struct Index<'a> {
     fst: Map<Cow<'a, [u8]>>,
 }
 
+pub trait Document<'doc, 'name> {
+    fn name(&'doc self) -> &'name str;
+}
+
+impl<'s, T: AsRef<str>> Document<'s, 's> for T {
+    fn name(&'s self) -> &'s str {
+        self.as_ref()
+    }
+}
+
 type Id = u32;
 
-impl<'a> Index<'a> {
-    pub fn construct(
-        documents: &[impl AsRef<str>],
+impl<'name> Index<'name> {
+    pub fn construct<'doc>(
+        documents: &'doc [impl Document<'doc, 'name>],
         writer: &mut impl std::io::Write,
-    ) -> std::io::Result<()> {
+    ) -> std::io::Result<()> where 'name: 'doc {
         let (documents, bitmaps, fst) = Self::new_parts_in_memory(documents);
 
         writer.write_all((documents.len() as u32).to_be_bytes().as_slice())?;
         for document in documents {
-            Self::write_slice(writer, document.as_ref().as_bytes())?;
+            Self::write_slice(writer, document.name().as_bytes())?;
         }
 
         writer.write_all((bitmaps.len() as u32).to_be_bytes().as_slice())?;
@@ -66,7 +76,7 @@ impl<'a> Index<'a> {
         Some(ret)
     }
 
-    pub fn from_bytes(mut bytes: &'a [u8]) -> Option<Self> {
+    pub fn from_bytes(mut bytes: &'name [u8]) -> Option<Self> {
         // 1. Read the documents
         let mut documents = Vec::new();
         let nb_documents = Self::read_size_from_bytes(&mut bytes)?;
@@ -109,15 +119,15 @@ impl<'a> Index<'a> {
         }
     }
 
-    fn new_parts_in_memory<'b>(documents: &'b [impl AsRef<str>]) -> (&'b [impl AsRef<str>],
-                                                                     Vec<RoaringBitmap>,
-                                                                     Vec<u8>) {
+    fn new_parts_in_memory<'b>(documents: &'b [impl Document<'b, 'name>]) -> (&'b [impl Document<'b, 'name>],
+                                                                                      Vec<RoaringBitmap>,
+                                                                                      Vec<u8>) {
         let mut words = documents
             .iter()
             .enumerate()
             .flat_map(|(id, document)| {
                 document
-                    .as_ref()
+                    .name()
                     .split_whitespace()
                     .map(move |word| (id as Id, normalize(word)))
             })
@@ -149,13 +159,13 @@ impl<'a> Index<'a> {
        )
     }
 
-    pub fn new_in_memory<'b>(documents: &'b [impl AsRef<str>]) -> Index<'b> {
+    pub fn new_in_memory<'doc>(documents: &'doc [impl Document<'doc, 'name>]) -> Index<'name> where 'name: 'doc {
         let (documents, bitmaps, fst) = Self::new_parts_in_memory(documents);
 
         Index {
             documents: documents
                 .into_iter()
-                .map(|s| Cow::Borrowed(s.as_ref()))
+                .map(|s| Cow::Borrowed(s.name()))
                 .collect(),
             bitmaps,
             fst: Map::new(Cow::Owned(fst)).unwrap(),
